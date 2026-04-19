@@ -1,0 +1,15 @@
+POST http://localhost:3000/orders
+Content-Type: application/json
+
+{
+  "customerName": "Thomas",
+  "items": [
+    {
+      "productId": "p1001",
+      "name": "Gaming Mouse",
+      "price": 79.99,
+      "quantity": 1
+    }
+  ],
+  "total": 79.99
+}
