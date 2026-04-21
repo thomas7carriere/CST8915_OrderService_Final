@@ -4,6 +4,13 @@ const amqp = require('amqplib/callback_api'); // AMQP (Advanced Message Queuing 
 const cors = require('cors'); // CORS (Cross-Origin Resource Sharing) middleware for handling cross-origin requests.
 require('dotenv').config(); // Load environment variables from .env file in development
 
+const { MongoClient } = require("mongodb");
+const MONGO_URI = process.env.MONGO_URI;
+const DB_NAME = process.env.MONGO_DB_NAME || "bestbuy";
+const client = new MongoClient(MONGO_URI);
+
+let ordersCollection;
+
 const app = express(); // Create an Express application instance.
 app.use(express.json()); // Middleware to parse incoming JSON request bodies.
 
@@ -14,9 +21,37 @@ app.use(cors());
 const RABBITMQ_CONNECTION_STRING = process.env.RABBITMQ_CONNECTION_STRING || 'amqp://localhost';  // Fallback to localhost if not defined
 const PORT = process.env.PORT || 3000;  // Fallback to port 3000 if not defined
 
+app.get('/orders', async (req, res) => {
+  try {
+    if (!ordersCollection) {
+      return res.status(500).send('MongoDB not connected');
+    }
+
+    const orders = await ordersCollection
+      .find({}, { projection: { _id: 0 } })
+      .sort({ createdAt: -1 })
+      .toArray();
+    res.json(orders);
+  } catch (err) {
+    console.error("Error fetching orders:", err);
+    res.status(500).send('Failed to fetch orders');
+  }
+});
+
 // Define a POST route for creating orders
-app.post('/orders', (req, res) => {
-  const order = req.body; // Extract the order data from the request body.
+app.post('/orders', async (req, res) => {
+  const order = {
+    ...req.body,
+    status: "pending",
+    createdAt: new Date()
+  };
+   
+  try {
+   if (!ordersCollection) {
+    return res.status(500).send('MongoDB not connected');
+   }
+  await ordersCollection.insertOne(order)
+  console.log("Order saved to MongoDB");
   
   // Connect to RabbitMQ server
   amqp.connect(RABBITMQ_CONNECTION_STRING, (err, conn) => {
@@ -48,7 +83,26 @@ app.post('/orders', (req, res) => {
       res.send('Order received');
     });
   });
+    } catch (err) {
+    console.error("Error saving order:", err);
+    res.status(500).send('Failed to save order');
+    }
 });
+
+async function connectToMongo() {
+  try {
+    await client.connect();
+
+    const db = client.db(DB_NAME);
+    ordersCollection = db.collection("orders");
+
+    console.log("Connected to MongoDB");
+  } catch (err) {
+    console.error("MongoDB connection error:", err);
+  }
+}
+
+connectToMongo();
 
 // Start the server using the port from environment variables
 app.listen(PORT, () => {
